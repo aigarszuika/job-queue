@@ -5,7 +5,7 @@ namespace Enqueue\JobQueue\Doctrine;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\LockMode;
-use Doctrine\ORM\EntityManager;
+use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\EntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 use Enqueue\JobQueue\DuplicateJobException;
@@ -24,7 +24,7 @@ class JobStorage
     private $entityClass;
 
     /**
-     * @var EntityManager
+     * @var EntityManagerInterface
      */
     private $em;
 
@@ -84,10 +84,8 @@ class JobStorage
 
         return $qb
             ->where('job.ownerId = :ownerId AND job.name = :jobName')
-            ->setParameters([
-                'ownerId' => $ownerId,
-                'jobName' => $jobName,
-            ])
+            ->setParameter('ownerId', $ownerId)
+            ->setParameter('jobName', $jobName)
             ->getQuery()->getOneOrNullResult()
         ;
     }
@@ -136,7 +134,7 @@ class JobStorage
                 throw new \LogicException('Is not possible to create new job with lock, only update is allowed');
             }
 
-            $this->getEntityManager()->wrapInTransaction(function (EntityManager $em) use ($job, $lockCallback) {
+            $this->getEntityManager()->wrapInTransaction(function (EntityManagerInterface $em) use ($job, $lockCallback) {
                 /** @var Job $job */
                 $job = $this->getEntityRepository()->find($job->getId(), LockMode::PESSIMISTIC_WRITE);
 
@@ -205,15 +203,21 @@ class JobStorage
     }
 
     /**
-     * @return EntityManager
+     * @return EntityManagerInterface
      */
     private function getEntityManager()
     {
         if (!$this->em) {
             $this->em = $this->doctrine->getManagerForClass($this->entityClass);
+            if (!$this->em instanceof EntityManagerInterface) {
+                throw new \LogicException(sprintf('No entity manager found for class "%s".', $this->entityClass));
+            }
         }
         if (!$this->em->isOpen()) {
             $this->em = $this->doctrine->resetManager();
+            if (!$this->em instanceof EntityManagerInterface) {
+                throw new \LogicException(sprintf('Failed to reset entity manager for class "%s".', $this->entityClass));
+            }
         }
 
         return $this->em;
